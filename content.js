@@ -45,7 +45,10 @@
     aiBase: '',
     aiKey: '',
     aiModel: '',
-    aiPrompt: ''
+    aiPrompt: '',
+    /* ---- 翻页 / 滑动课件 ---- */
+    autoSlide: true,
+    slideEvery: 2
   };
 
   const S = Object.assign({}, DEFAULTS);
@@ -72,7 +75,16 @@
     replied: null,
     discussBusy: false,
     lastDiscussAt: 0,
-    discussForce: false
+    discussForce: false,
+    /* 课件 */
+    slideSig: "",
+    slideTry: 0,
+    slideStuck: 0,
+    slideLastTry: 0,
+    slideChangedAt: 0,
+    slideWarned: false,
+    slideDone: false,
+    slidePages: ""
   };
 
   const boundVideos = new WeakSet();
@@ -227,6 +239,7 @@
   }
 
   function statusText() {
+    // slide 状态在面板上单独显示，这里只负责视频/答题
     const parts = [];
     const v = st.video;
     if (v && v.isConnected) {
@@ -1848,6 +1861,361 @@
     log(n ? '清掉了 ' + n + ' 条旧回复，页面上只剩新写的了' : '这页没找到扩展发过的旧回复');
   }
 
+  /* ================= 翻页 / 滑动课件 ================= */
+  // 学习通的 PPT / 文档 / 图片课件是一页一页翻的：右侧有「下一页」按钮的最省事，
+  // 但有的只吃滚轮、有的要上下滑（滑动课件）、有的是 swiper 组件。
+  // 这里按「按钮 → swiper → 键盘 → 滚轮 → 滑动 → 滚动条」从稳到野排队，
+  // 用「页码 / 滚动位置 / 当前图」判断有没有翻过去，翻不动就换下一招。
+
+  const SLIDE_NEXT_SEL = [
+    '.swiper-button-next',
+    '.next-btn',
+    '#nextBtn',
+    '#next',
+    '.btn-next',
+    '.page-next',
+    '[class*="next"][class*="btn"]',
+    '[class*="btn"][class*="next"]',
+    '[title*="下一"]',
+    '[aria-label*="下一"]',
+    'a[onclick*="next"]',
+    'a[onclick*="Next"]'
+  ].join(',');
+
+  const NEXT_TXT = /^(下一页|下一张|下一节|下一个|下一页>|继续|next|›|»|＞|>)$/i;
+  const SLIDE_DONE_TXT = /(已看完|已经学完|课件已学完|学习完成|任务点已完成|已完成学习)/;
+
+  function slideText(el) {
+    return String((el && (el.innerText || el.textContent || el.value || el.title || '')) || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // 页码：1/12、3 / 12 这种，或者 aria-valuenow="3"
+  function slideIndicator() {
+    const cands = $$('span, i, em, b, div, p');
+    for (let k = 0; k < cands.length; k++) {
+      const el = cands[k];
+      if (!visible(el)) continue;
+      if (el.closest('#fj-cx-panel') || el.closest('#fj-draft')) continue;
+      const t = slideText(el);
+      if (t.length > 12) continue;
+      const m = /^(\d{1,4})\s*[/／]\s*(\d{1,4})$/.exec(t);
+      if (m) return { cur: Number(m[1]), total: Number(m[2]), text: t };
+    }
+    const aria = $('[aria-valuenow][aria-valuemax]');
+    if (aria && visible(aria)) {
+      const cur = Number(aria.getAttribute('aria-valuenow'));
+      const total = Number(aria.getAttribute('aria-valuemax'));
+      if (cur && total) return { cur, total, text: cur + '/' + total };
+    }
+    return null;
+  }
+
+  function slideRoot() {
+    const prefer = ['#panView', '#docContainer', '.doc-container', '#contentDiv', '.ppt-container', '#fullScreenContainer'];
+    for (let k = 0; k < prefer.length; k++) {
+      const el = $(prefer[k]);
+      if (el && visible(el) && el.scrollHeight > el.clientHeight + 40) return el;
+    }
+    let best = null;
+    const all = $$('div, section, article');
+    for (let k = 0; k < all.length; k++) {
+      const el = all[k];
+      if (!visible(el)) continue;
+      if (el.closest('#fj-cx-panel') || el.closest('#fj-draft')) continue;
+      if (el.scrollHeight <= el.clientHeight + 80) continue;
+      if (el.clientHeight < 200) continue;
+      if (!best || el.scrollHeight > best.scrollHeight) best = el;
+    }
+    return best;
+  }
+
+  function slideNextBtn() {
+    const direct = $(SLIDE_NEXT_SEL);
+    if (direct && visible(direct) && !isDisabled(direct)) return direct;
+    const all = $$('button, a, span, div, i, input[type="button"]');
+    for (let k = 0; k < all.length; k++) {
+      const el = all[k];
+      if (!visible(el) || isDisabled(el)) continue;
+      if (el.closest('#fj-cx-panel') || el.closest('#fj-draft')) continue;
+      const t = slideText(el);
+      if (t && t.length <= 10 && NEXT_TXT.test(t)) return el;
+    }
+    return null;
+  }
+
+  function isDisabled(el) {
+    if (!el) return true;
+    if (el.disabled) return true;
+    const cls = String(el.className || '');
+    if (/disabled|forbid|ban\b/i.test(cls)) return true;
+    if (el.getAttribute && (el.getAttribute('aria-disabled') === 'true' || el.getAttribute('disabled') != null)) {
+      return true;
+    }
+    return false;
+  }
+
+  function slideDoneText() {
+    const all = $$('span, div, p, i, em');
+    for (let k = 0; k < all.length; k++) {
+      const el = all[k];
+      if (!visible(el)) continue;
+      const t = slideText(el);
+      if (t.length <= 24 && SLIDE_DONE_TXT.test(t)) return t;
+    }
+    return '';
+  }
+
+  function slideSwiper() {
+    const box = $('.swiper, .swiper-container, .swiper-wrapper');
+    if (!box) return null;
+    let el = box;
+    for (let k = 0; k < 4 && el; k++) {
+      if (el.swiper && typeof el.swiper.slideNext === 'function') return el.swiper;
+      el = el.parentElement;
+    }
+    const wrap = $('.swiper-wrapper');
+    if (wrap) {
+      const cur = Number(wrap.getAttribute('data-cur') || 0);
+      return {
+        slideNext: function () {
+          wrap.setAttribute('data-cur', String(cur + 1));
+          wrap.style.transform = 'translate3d(0,' + -100 * (cur + 1) + '%,0)';
+        }
+      };
+    }
+    return null;
+  }
+
+  function slideSig() {
+    const ind = slideIndicator();
+    if (ind) return 'p' + ind.cur + '/' + ind.total;
+    const sw = $('.swiper-wrapper');
+    if (sw) {
+      const tr = String(sw.style.transform || '');
+      if (tr) return 'sw' + tr;
+    }
+    const root = slideRoot();
+    if (root) return 's' + Math.round(root.scrollTop / 50);
+    const img = $$('img')
+      .filter((i) => visible(i) && i.clientWidth > 200)
+      .sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0];
+    if (img) return 'i' + String(img.src || '').slice(-40);
+    return '';
+  }
+
+  function slideFireKey() {
+    const target = document.activeElement && document.activeElement !== document.body ? document.activeElement : document;
+    const keys = ['ArrowRight', 'PageDown', 'ArrowDown'];
+    keys.forEach(function (key) {
+      try {
+        const ev = new KeyboardEvent('keydown', {
+          key: key,
+          code: key,
+          keyCode: key === 'ArrowRight' ? 39 : key === 'PageDown' ? 34 : 40,
+          which: key === 'ArrowRight' ? 39 : key === 'PageDown' ? 34 : 40,
+          bubbles: true,
+          cancelable: true
+        });
+        target.dispatchEvent(ev);
+        document.dispatchEvent(ev);
+      } catch (e) {}
+    });
+    return true;
+  }
+
+  function slideFireWheel(el) {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    try {
+      el.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: Math.max(400, r.height * 0.8), deltaMode: 0, clientX: x, clientY: y, bubbles: true, cancelable: true })
+      );
+      el.dispatchEvent(new Event('scroll', { bubbles: true }));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // 滑动课件：从下往上拖一下（很多竖屏课件只认这个）
+  function slideFireSwipe(el) {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y0 = r.top + r.height * 0.75;
+    const y1 = r.top + r.height * 0.2;
+    try {
+      const mk = function (type, y) {
+        const ev = new PointerEvent(type, {
+          pointerId: 1,
+          pointerType: 'touch',
+          isPrimary: true,
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+          cancelable: true
+        });
+        el.dispatchEvent(ev);
+      };
+      mk('pointerdown', y0);
+      mk('pointermove', (y0 + y1) / 2);
+      mk('pointermove', y1);
+      mk('pointerup', y1);
+      try {
+        const t = function (type, y) {
+          const ev = new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches: type === 'touchend' ? [] : [{ identifier: 1, clientX: x, clientY: y }],
+            changedTouches: [{ identifier: 1, clientX: x, clientY: y }]
+          });
+          el.dispatchEvent(ev);
+        };
+        t('touchstart', y0);
+        t('touchmove', y1);
+        t('touchend', y1);
+      } catch (e2) {}
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function slideScroll(el, ratio) {
+    if (!el) return false;
+    const step = Math.max(200, el.clientHeight * (ratio || 0.9));
+    el.scrollTop = el.scrollTop + step;
+    el.dispatchEvent(new Event('scroll', { bubbles: true }));
+    return true;
+  }
+
+  function slideAttempt(n) {
+    const btn = slideNextBtn();
+    const root = slideRoot();
+    const step = n % 6;
+    if (step === 0 && btn) {
+      clickEl(btn);
+      return '点了「' + slideText(btn).slice(0, 8) + '」';
+    }
+    if (step === 1) {
+      const sw = slideSwiper();
+      if (sw) {
+        try {
+          sw.slideNext();
+          return 'swiper 下一张';
+        } catch (e) {}
+      }
+    }
+    if (step === 2) {
+      slideFireKey();
+      return '发了方向键';
+    }
+    if (step === 3) {
+      if (slideFireWheel(root || document.body)) return '滚了一下';
+      return '';
+    }
+    if (step === 4) {
+      if (slideFireSwipe(root || document.body)) return '滑了一下';
+      return '';
+    }
+    if (step === 5) {
+      if (slideScroll(root, 0.9)) return '把课件滚下去一屏';
+      return '';
+    }
+    // 兜底：有按钮就点按钮
+    if (btn) {
+      clickEl(btn);
+      return '点了「' + slideText(btn).slice(0, 8) + '」';
+    }
+    return '';
+  }
+
+  function clickEl(el) {
+    try {
+      el.click();
+    } catch (e) {
+      ['mousedown', 'mouseup', 'click'].forEach(function (t) {
+        try {
+          el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
+        } catch (e2) {}
+      });
+    }
+  }
+
+  function isSlidePage() {
+    if (isBbsPage() || isWorkPage()) return false;
+    if (pickVideo()) return false;
+    const path = location.pathname + location.search;
+    const pathHit = /ananas|courseware|\/ppt\/|\/doc\/|\/pdf\/|\/slide|slideShow|document/i.test(path);
+    const domHit = !!$('#panView, #docContainer, .doc-container, .ppt-container, #fullScreenContainer, .swiper-container');
+    if (!pathHit && !domHit) return false;
+    return !!slideIndicator() || !!slideNextBtn() || !!slideRoot();
+  }
+
+  function slideTick() {
+    if (!S.autoSlide) return;
+    if (st.slideDone) return;
+    if (!isSlidePage()) return;
+    const now = Date.now();
+    const every = Math.min(Math.max((Number(S.slideEvery) || 2) * 1000, 800), 15000);
+    const sig = slideSig();
+
+    // 页面变了（翻过去了 / 滚动了）→ 重置
+    if (sig && sig !== st.slideSig) {
+      if (st.slideSig) {
+        st.slideTry = 0;
+        st.slideStuck = 0;
+      }
+      st.slideSig = sig;
+      st.slideChangedAt = now;
+      const ind = slideIndicator();
+      if (ind && ind.total && ind.cur >= ind.total) {
+        log('课件翻到最后一页了（' + ind.cur + '/' + ind.total + '）', 'ok');
+        st.slideDone = true;
+        return;
+      }
+      if (!ind || !ind.total) {
+        // 没有页码的课件：到底了就到底了，别一直滚
+        const root = slideRoot();
+        if (root && root.scrollTop + root.clientHeight >= root.scrollHeight - 30) {
+          log('课件滚到底了，停止翻页', 'ok');
+          st.slideDone = true;
+          return;
+        }
+      }
+    }
+
+    if (now - st.slideLastTry < every) return;
+    st.slideLastTry = now;
+
+    const did = slideAttempt(st.slideTry);
+    // 不管这一步使没使上劲，梯子都往前走一格；不然遇到「没有翻页按钮」会死在第 0 步
+    st.slideTry = (st.slideTry + 1) % 6;
+    if (did) {
+      st.slideStuck++;
+      log('课件第 ' + st.slideStuck + ' 次翻页：' + did);
+    } else {
+      st.slideStuck++;
+    }
+
+    // 连着好几轮都没动静 → 提示一次就收手，别把页面搓坏
+    if (st.slideStuck >= 8 && !st.slideWarned) {
+      st.slideWarned = true;
+      const done = slideDoneText();
+      log(
+        done
+          ? '课件显示「' + done + '」，不用再翻了'
+          : '课件翻不动了（可能已经是最后一页，或者这个课件不认自动翻页），先停手',
+        done ? 'ok' : 'warn'
+      );
+      st.slideDone = true;
+    }
+  }
+
   function diagPage() {
     log('诊断地址：' + location.hostname + location.pathname.slice(0, 60));
     log('识别结果：' + (isBbsPage() ? '讨论页' : document.getElementById('content2') ? '课程学习页' : '其它页面'));
@@ -1872,6 +2240,17 @@
     log('可见按钮：' + Array.from(new Set(btns)).slice(0, 30).join(' / '));
     log('话题标题：' + bbsTopic().slice(0, 60));
     log('抓到发言 ' + bbsReplies().length + ' 条');
+    const ind = slideIndicator();
+    log(
+      '课件：' +
+        (isSlidePage() ? '是' : '否') +
+        ' · 页码 ' +
+        (ind ? ind.cur + '/' + ind.total : '没认出') +
+        ' · 翻页按钮 ' +
+        (slideNextBtn() ? '有' : '没有') +
+        ' · 可滚容器 ' +
+        (slideRoot() ? '有' : '没有')
+    );
   }
 
   /* ================= 初始化 ================= */
@@ -1895,6 +2274,7 @@
     setInterval(statsTick, 7000);
     setInterval(discussTick, 6000);
     setInterval(bbsTick, 8000);
+    setInterval(slideTick, 1000);
     setInterval(() => {
       if (IS_TOP) renderPanel();
     }, 1500);

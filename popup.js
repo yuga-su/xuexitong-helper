@@ -29,7 +29,9 @@ const DEFAULTS = {
   aiBase: '',
   aiKey: '',
   aiModel: '',
-  aiPrompt: ''
+  aiPrompt: '',
+  autoSlide: true,
+  slideEvery: 2
 };
 
 const $ = (s) => document.querySelector(s);
@@ -70,6 +72,7 @@ function collect() {
     else if (k === 'rate') out[k] = Number(el.value) || 1;
     else if (k === 'discussMax') out[k] = Math.min(Math.max(Number(el.value) || 3, 1), 20);
     else if (k === 'discussLen') out[k] = Math.min(Math.max(Number(el.value) || 60, 15), 200);
+    else if (k === 'slideEvery') out[k] = Math.min(Math.max(Number(el.value) || 2, 1), 15);
     else out[k] = el.value;
   });
   return out;
