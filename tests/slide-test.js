@@ -58,7 +58,7 @@ class El {
     this.value = '';
     this.disabled = false;
     this.title = '';
-    this.scrollTop = opts.scrollTop || 0;
+    this._scrollTop = opts.scrollTop || 0;
     this.scrollHeight = opts.scrollHeight || 0;
     this.clientHeight = opts.clientHeight || 0;
     this.clientWidth = opts.clientWidth || 0;
@@ -166,6 +166,17 @@ class El {
   }
 }
 
+// 真浏览器的 scrollTop 会被滚到底部时夹住，假 DOM 也得夹，不然指纹一直在变
+Object.defineProperty(El.prototype, 'scrollTop', {
+  get() {
+    return this._scrollTop || 0;
+  },
+  set(v) {
+    const max = Math.max(0, (this.scrollHeight || 0) - (this.clientHeight || 0));
+    this._scrollTop = Math.max(0, Math.min(Number(v) || 0, max));
+  }
+});
+
 const MODE = process.env.FJ_SLIDE || 'button';
 const doc = new El('html');
 const body = new El('body');
@@ -177,13 +188,33 @@ let container = null;
 let wheelCount = 0;
 let page = 1;
 const total = 3;
+let imgEl = null;
 
 function setPage(n) {
   page = n;
   if (pageEl) pageEl.textContent = n + '/' + total;
 }
 
-if (MODE !== 'plain') {
+if (MODE === 'ananas') {
+  // ananas PPT：整块 .ans-module-preview，一张图一页，按钮没有文字
+  container = new El('div', { className: 'ans-module-preview', clientHeight: 600, scrollHeight: 4000, clientWidth: 800 });
+  imgEl = new El('img', { className: 'ppt-page', clientWidth: 700, clientHeight: 500 });
+  imgEl.src = 'a1.png';
+  container.appendChild(imgEl);
+  body.appendChild(container);
+  nextBtn = new El('button', { className: 'ans-next', text: '' });
+  nextBtn.addEventListener('click', () => {
+    if (page >= total) return;
+    page++;
+    imgEl.src = 'a' + page + '.png';
+    if (page >= total) nextBtn.disabled = true;
+  });
+  body.appendChild(nextBtn);
+  // ananas 里常见的隐藏音视频占位：不能把它当成视频页
+  const hiddenVideo = new El('video', { clientHeight: 0, clientWidth: 0 });
+  hiddenVideo.duration = 30;
+  body.appendChild(hiddenVideo);
+} else if (MODE !== 'plain') {
   container = new El('div', { id: 'docContainer', clientHeight: 600, scrollHeight: 4000, clientWidth: 800 });
   pageEl = new El('span', { className: 'page-num', text: '1/' + total });
   container.appendChild(pageEl);
@@ -321,7 +352,7 @@ const wait = (ms) => new Promise((r) => realSetTimeout(r, ms));
   ok(typeof msgListener === 'function', '消息监听已注册');
 
   // 模拟 12 秒：每秒推进时钟并跑一次所有定时器
-  for (let k = 0; k < 12; k++) {
+  for (let k = 0; k < 80; k++) {
     clock += 1000;
     intervals.forEach((i) => {
       try {
@@ -341,6 +372,14 @@ const wait = (ms) => new Promise((r) => realSetTimeout(r, ms));
     ok(doneLog, '到最后一页会自己停：' + (slideLogs[slideLogs.length - 1] || ''));
     ok(nextBtn._clicks === 2, '停手之后不再乱点');
     ok(wheelCount === 0, '有按钮时不乱滚（实际 ' + wheelCount + '）');
+  } else if (MODE === 'ananas') {
+    ok(nextBtn._clicks === 2, 'ananas：点了 2 次「下一页」（实际 ' + nextBtn._clicks + '）');
+    ok(String(imgEl.src).endsWith('a3.png'), 'ananas：图换到 a3.png（实际 ' + imgEl.src + '）');
+    ok(!slideLogs.some((l) => l.indexOf('视频页') >= 0), 'ananas：隐藏的音视频占位没把翻页挡掉');
+    ok(
+      slideLogs.some((l) => l.indexOf('翻不动') >= 0 || l.indexOf('最后一页') >= 0 || l.indexOf('滚到底') >= 0),
+      'ananas：翻到底会收手：' + (slideLogs[slideLogs.length - 1] || '')
+    );
   } else if (MODE === 'wheel') {
     ok(wheelCount >= 1, '没有按钮时用滚轮推进（滚了 ' + wheelCount + ' 次）');
     ok(page === 3, '滚轮把页码推到了 3/3（实际 ' + page + '）');
@@ -349,6 +388,18 @@ const wait = (ms) => new Promise((r) => realSetTimeout(r, ms));
     ok(nextBtn === null, '非课件页没有翻页按钮');
     ok(wheelCount === 0, '非课件页不乱滚');
     ok(slideLogs.length === 0, '非课件页不打印课件日志（实际 ' + slideLogs.length + ' 条）');
+  }
+
+  // 弹窗那个「手动翻一页」按钮走的消息，别炸、要有回话
+  if (MODE === 'ananas') {
+    const resp = await Promise.race([
+      new Promise((r) => {
+        const ret = msgListener({ type: 'fj-slide-once' }, {}, r);
+        if (ret !== true) r(null);
+      }),
+      new Promise((r) => realSetTimeout(() => r('timeout'), 9000))
+    ]);
+    ok(resp && resp !== 'timeout' && typeof resp.ok === 'boolean', '手动翻一页有回话：' + JSON.stringify(resp).slice(0, 70));
   }
 
   Date.now = realDateNow;

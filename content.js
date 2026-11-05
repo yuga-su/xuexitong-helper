@@ -84,7 +84,8 @@
     slideChangedAt: 0,
     slideWarned: false,
     slideDone: false,
-    slidePages: ""
+    slidePages: "",
+    slideSkipLog: ""
   };
 
   const boundVideos = new WeakSet();
@@ -1879,7 +1880,18 @@
     '[title*="下一"]',
     '[aria-label*="下一"]',
     'a[onclick*="next"]',
-    'a[onclick*="Next"]'
+    'a[onclick*="Next"]',
+    '.ans-next',
+    '.ans-module-next',
+    '#ansNext',
+    '.slide-next',
+    '#slideNext',
+    '.btnNext',
+    '.next-page',
+    '#prevNextFocusNext',
+    '[class*="nextPage"]',
+    '[class*="next-page"]',
+    '[class*="nextSlide"]'
   ].join(',');
 
   const NEXT_TXT = /^(下一页|下一张|下一节|下一个|下一页>|继续|next|›|»|＞|>)$/i;
@@ -1913,7 +1925,21 @@
   }
 
   function slideRoot() {
-    const prefer = ['#panView', '#docContainer', '.doc-container', '#contentDiv', '.ppt-container', '#fullScreenContainer'];
+    const prefer = [
+      '#panView',
+      '#docContainer',
+      '.doc-container',
+      '#contentDiv',
+      '.ppt-container',
+      '#fullScreenContainer',
+      '#pptDiv',
+      '.pptDiv',
+      '.ans-module-preview',
+      '.ans-module-content',
+      '#slideContent',
+      '.slide-content',
+      '.slide-container'
+    ];
     for (let k = 0; k < prefer.length; k++) {
       const el = $(prefer[k]);
       if (el && visible(el) && el.scrollHeight > el.clientHeight + 40) return el;
@@ -1991,18 +2017,26 @@
   function slideSig() {
     const ind = slideIndicator();
     if (ind) return 'p' + ind.cur + '/' + ind.total;
+    let sig = '';
     const sw = $('.swiper-wrapper');
     if (sw) {
       const tr = String(sw.style.transform || '');
-      if (tr) return 'sw' + tr;
+      if (tr) sig = 'sw' + tr;
     }
     const root = slideRoot();
-    if (root) return 's' + Math.round(root.scrollTop / 50);
-    const img = $$('img')
-      .filter((i) => visible(i) && i.clientWidth > 200)
-      .sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0];
-    if (img) return 'i' + String(img.src || '').slice(-40);
-    return '';
+    if (!sig && root) sig = 's' + Math.round(root.scrollTop / 50);
+    // 纯图片课件：页面未必会滚，但图会换，所以把主图也编进指纹
+    const imgs = $$('img').filter(function (i) {
+      return visible(i) && (i.clientWidth || 0) > 200;
+    });
+    if (imgs.length) {
+      imgs.sort(function (x, y) {
+        return (y.clientWidth || 0) * (y.clientHeight || 0) - (x.clientWidth || 0) * (x.clientHeight || 0);
+      });
+      const src = String(imgs[0].src || imgs[0].getAttribute('src') || '');
+      sig = (sig ? sig + '|' : '') + 'i' + src.slice(-40);
+    }
+    return sig;
   }
 
   function slideFireKey() {
@@ -2146,20 +2180,41 @@
     }
   }
 
-  function isSlidePage() {
-    if (isBbsPage() || isWorkPage()) return false;
-    if (pickVideo()) return false;
+  // 课件页判定：返回空串=是课件页，返回别的=不是，顺便把原因写出来给日志用
+  function slideWhy() {
+    if (isBbsPage()) return '这是讨论页';
+    if (isWorkPage()) return '这是答题页';
+    // 只有「看得见、够长、够大」的视频才算视频页。
+    // ananas 的 PPT 里常塞一个隐藏的音视频占位，不能让它把翻页整个挡掉。
+    const v = pickVideo();
+    if (v && visible(v) && (Number(v.duration) || 0) > 10 && (v.clientHeight || 0) > 120) return '这是视频页';
     const path = location.pathname + location.search;
-    const pathHit = /ananas|courseware|\/ppt\/|\/doc\/|\/pdf\/|\/slide|slideShow|document/i.test(path);
-    const domHit = !!$('#panView, #docContainer, .doc-container, .ppt-container, #fullScreenContainer, .swiper-container');
-    if (!pathHit && !domHit) return false;
-    return !!slideIndicator() || !!slideNextBtn() || !!slideRoot();
+    const pathHit = /ananas|courseware|\/ppt\/|\/doc\/|\/pdf\/|\/slide|slideShow|document|panel|preview/i.test(path);
+    const domHit = !!$(
+      '#panView, #docContainer, .doc-container, .ppt-container, #fullScreenContainer, .swiper-container, ' +
+        '.swiper, #pptDiv, .pptDiv, .ans-module-preview, .ans-module-content, #slideContent, .slide-content, .slide-container'
+    );
+    if (!pathHit && !domHit) return '地址和 DOM 都不像课件页';
+    if (!slideIndicator() && !slideNextBtn() && !slideRoot()) return '没找到页码 / 翻页按钮 / 可滚容器';
+    return '';
+  }
+
+  function isSlidePage() {
+    return slideWhy() === '';
   }
 
   function slideTick() {
     if (!S.autoSlide) return;
     if (st.slideDone) return;
-    if (!isSlidePage()) return;
+    const whySkip = slideWhy();
+    if (whySkip) {
+      if (st.slideSkipLog !== whySkip) {
+        st.slideSkipLog = whySkip;
+        log('翻页跳过：' + whySkip);
+      }
+      return;
+    }
+    st.slideSkipLog = '';
     const now = Date.now();
     const every = Math.min(Math.max((Number(S.slideEvery) || 2) * 1000, 800), 15000);
     const sig = slideSig();
@@ -2216,6 +2271,30 @@
     }
   }
 
+  // 手动翻一页：六种办法挨个试，每一步都看位置变没变，日志里说清哪种生效
+  async function slideOnceManual() {
+    const before = slideSig();
+    log('手动翻页：开始，当前位置=' + (before || '没认出来') + '（' + (slideWhy() || '这页算课件') + '）');
+    const tried = [];
+    for (let k = 0; k < 6; k++) {
+      let did = '';
+      try {
+        did = slideAttempt(k);
+      } catch (e) {
+        did = '';
+      }
+      tried.push(did || '第 ' + (k + 1) + ' 种没使上');
+      await sleep(900);
+      const now = slideSig();
+      if (now && now !== before) {
+        log('手动翻页：第 ' + (k + 1) + ' 种生效了 —— ' + did + '，位置 ' + now, 'ok');
+        return { ok: true, step: k + 1, did, tried };
+      }
+    }
+    log('手动翻页：六种都没推动。试过：' + tried.join(' / '), 'warn');
+    return { ok: false, tried };
+  }
+
   function diagPage() {
     log('诊断地址：' + location.hostname + location.pathname.slice(0, 60));
     log('识别结果：' + (isBbsPage() ? '讨论页' : document.getElementById('content2') ? '课程学习页' : '其它页面'));
@@ -2251,6 +2330,7 @@
         ' · 可滚容器 ' +
         (slideRoot() ? '有' : '没有')
     );
+    log('课件跳过原因：' + (slideWhy() || '无（这页该翻）'));
   }
 
   /* ================= 初始化 ================= */
@@ -2309,6 +2389,18 @@
         diagPage();
         sendResponse({ ok: true, top: IS_TOP, url: location.href });
         return;
+      }
+      if (msg && msg.type === 'fj-slide-once') {
+        if (!IS_TOP) {
+          sendResponse({ ok: false, error: '这条要在主框架点' });
+          return;
+        }
+        slideOnceManual().then((r) => {
+          try {
+            sendResponse(Object.assign({ top: true }, r));
+          } catch (e) {}
+        });
+        return true;
       }
       if (msg && msg.type === 'fj-discuss-reset') {
         st.replied = {};

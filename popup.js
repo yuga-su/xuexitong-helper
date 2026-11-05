@@ -329,6 +329,26 @@ async function discussReset() {
   } catch (e) {}
 }
 
+function slideOnce() {
+  if (!currentTab) return flash('没找到标签页');
+  const info = document.getElementById('slideInfo');
+  if (info) info.textContent = '正在试：按钮 → swiper → 方向键 → 滚轮 → 上滑 → 滚一屏…';
+  chrome.tabs.sendMessage(currentTab.id, { type: 'fj-slide-once' }, (resp) => {
+    if (chrome.runtime.lastError || !resp) {
+      if (info) info.textContent = '主页面没反应，先刷新一下这个课件页';
+      return;
+    }
+    if (resp.ok) {
+      if (info) info.textContent = '第 ' + resp.step + ' 种翻法生效了：' + resp.did;
+      flash('翻过去了');
+    } else {
+      if (info) info.textContent = '六种都没推动，看面板日志里的「手动翻页」那几行';
+      flash('没推动，看日志');
+    }
+  });
+  setTimeout(pullLogs, 1200);
+}
+
 function purgeOld() {
   if (!currentTab) return flash('没找到标签页');
   chrome.tabs.sendMessage(currentTab.id, { type: 'fj-purge-old' }, (resp) => {
@@ -396,6 +416,7 @@ async function init() {
   bind('#discussNow', discussNow);
   bind('#discussReset', discussReset);
   bind('#purgeOld', purgeOld);
+  bind('#slideOnce', slideOnce);
   bind('#diag', () => {
     if (!currentTab) return flash('没找到标签页');
     chrome.tabs.sendMessage(currentTab.id, { type: 'fj-diag' }, (resp) => {

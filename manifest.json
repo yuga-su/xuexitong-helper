@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "学习通助手 · 1.0",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "学习通自动播放、静音倍速、自动下一节、视频弹题、章节测验自动作答、本地题库，以及用本地 AI 桥自动回复章节讨论与 BBS 话题",
   "permissions": [
     "storage",

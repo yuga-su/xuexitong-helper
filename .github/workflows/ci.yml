@@ -60,6 +60,7 @@ jobs:
           FJ_SLIDE=button node tests/slide-test.js
           FJ_SLIDE=wheel node tests/slide-test.js
           FJ_SLIDE=plain node tests/slide-test.js
+          FJ_SLIDE=ananas node tests/slide-test.js
 
   tag:
     name: 打 tag
