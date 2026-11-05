@@ -1,0 +1,202 @@
+/* 页面内悬浮面板 */
+#fj-cx-panel {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  width: 290px;
+  z-index: 2147483647;
+  background: rgba(18, 18, 28, 0.94);
+  color: #e9e9f2;
+  font: 12px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  user-select: none;
+  text-align: left;
+}
+
+#fj-cx-panel .fj-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 11px;
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.55), rgba(236, 72, 153, 0.35));
+  cursor: move;
+  font-size: 12px;
+}
+
+#fj-cx-panel .fj-head b {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+#fj-cx-panel .fj-head em {
+  font-style: normal;
+  font-size: 10px;
+  opacity: 0.75;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+#fj-cx-panel .fj-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+  flex: 0 0 auto;
+}
+
+#fj-cx-panel .fj-min {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+#fj-cx-panel .fj-min:hover {
+  background: rgba(255, 255, 255, 0.18);
+  opacity: 1;
+}
+
+#fj-cx-panel .fj-body {
+  padding: 9px 11px 7px;
+}
+
+#fj-cx-panel .fj-status {
+  font-size: 11.5px;
+  color: #c9b8ff;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#fj-cx-panel .fj-bank {
+  font-size: 11px;
+  color: #7fe3c4;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#fj-cx-panel .fj-log {
+  max-height: 118px;
+  overflow: auto;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: #9aa0b5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 7px;
+  padding: 6px 7px;
+}
+
+#fj-cx-panel .fj-foot {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #5f6478;
+  text-align: right;
+}
+
+#fj-cx-panel.fj-collapsed .fj-body {
+  display: none;
+}
+/* ===== 3.3 AI 拟稿确认卡片 ===== */
+#fj-draft {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 330px;
+  z-index: 2147483646;
+  background: #1a1330;
+  color: #f2e9ff;
+  border: 1px solid #7c3aed;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 12px;
+  font: 13px/1.6 -apple-system, "Microsoft YaHei", sans-serif;
+}
+#fj-draft .fj-d-head {
+  font-weight: 600;
+  color: #d8b4fe;
+  margin-bottom: 4px;
+}
+#fj-draft .fj-d-sub {
+  font-size: 12px;
+  color: #9c8fbf;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#fj-draft .fj-d-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 74px;
+  resize: vertical;
+  background: #241a42;
+  color: #f2e9ff;
+  border: 1px solid #4c2f8f;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  outline: none;
+}
+#fj-draft .fj-d-text:focus {
+  border-color: #a855f7;
+}
+#fj-draft .fj-d-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+#fj-draft .fj-d-btn {
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  color: #f2e9ff;
+  background: #3b2a63;
+}
+#fj-draft .fj-d-btn:hover {
+  filter: brightness(1.15);
+}
+#fj-draft .fj-d-send {
+  background: #7c3aed;
+}
+#fj-draft .fj-d-cancel {
+  background: transparent;
+  color: #9c8fbf;
+}
+#fj-draft .fj-d-tip {
+  font-size: 11px;
+  color: #9c8fbf;
+  margin-left: auto;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#fj-draft .fj-d-note {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 196, 0, 0.14);
+  color: #ffd479;
+  font-size: 12px;
+  line-height: 1.5;
+}

@@ -1,0 +1,8 @@
+{
+  "port": 17310,
+  "baseURL": "https://api.deepseek.com/v1",
+  "model": "deepseek-chat",
+  "apiKey": "",
+  "temperature": 0.7,
+  "maxTokens": 400
+}

@@ -1,0 +1,27 @@
+# 依赖
+node_modules/
+package-lock.json
+
+# 本地配置（含 API Key，绝对不要提交）
+bridge/config.json
+.env
+*.pem
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器 / 构建产物
+.vscode/
+.idea/
+dist/
+build/
+*.zip
+*.crx
+*.log
+npm-debug.log*
+
+# 临时文件
+*.tmp
+*.bak

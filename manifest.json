@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "学习通助手 · 1.0",
+  "version": "1.0.0",
+  "description": "学习通自动播放、静音倍速、自动下一节、视频弹题、章节测验自动作答、本地题库，以及用本地 AI 桥自动回复章节讨论与 BBS 话题",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "*://*.chaoxing.com/*",
+    "*://*.xueyinonline.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "学习通助手",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.chaoxing.com/*",
+        "*://*.xueyinonline.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.chaoxing.com/*",
+        "*://*.xueyinonline.com/*"
+      ],
+      "js": [
+        "inject.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

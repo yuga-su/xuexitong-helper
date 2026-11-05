@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>学习通助手</title>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hd">
+        <div class="logo">富</div>
+        <div class="hd-txt">
+          <h1>学习通助手 <span class="ver">1.0</span></h1>
+          <p class="sub">刷课 · 弹题 · 答题 · 本地题库 · AI 章节讨论</p>
+        </div>
+        <span id="conn" class="pill off">检测中</span>
+      </header>
+
+      <section class="card">
+        <h2>播放</h2>
+        <label class="row"><span>自动播放视频</span><input type="checkbox" data-key="autoPlay" /></label>
+        <label class="row"><span>静音播放</span><input type="checkbox" data-key="mute" /></label>
+        <label class="row">
+          <span>播放倍速</span>
+          <select data-key="rate">
+            <option value="1">1x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+            <option value="3">3x</option>
+            <option value="4">4x</option>
+            <option value="8">8x</option>
+            <option value="16">16x</option>
+          </select>
+        </label>
+        <label class="row"><span>自动下一节</span><input type="checkbox" data-key="autoNext" /></label>
+        <label class="row"><span>页面悬浮面板</span><input type="checkbox" data-key="showPanel" /></label>
+      </section>
+
+      <section class="card">
+        <h2>答题</h2>
+        <label class="row"><span>视频弹题自动答</span><input type="checkbox" data-key="autoVideoQuiz" /></label>
+        <label class="row"><span>章节测验自动答</span><input type="checkbox" data-key="autoWork" /></label>
+        <label class="row"><span>答完自动提交</span><input type="checkbox" data-key="autoSubmit" /></label>
+        <label class="row"><span>没答案就留空（不瞎猜）</span><input type="checkbox" data-key="skipGuess" /></label>
+        <label class="row">
+          <span>兜底策略</span>
+          <select data-key="fallback">
+            <option value="first">选第一个</option>
+            <option value="longest">选最长</option>
+            <option value="random">随机</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>题库接口（可选）</h2>
+        <input class="txt" type="text" data-key="apiUrl" placeholder="https://你的接口/answer" />
+        <input class="txt" type="password" data-key="apiKey" placeholder="Bearer Token（可留空）" />
+        <p class="hint">
+          请求 <code>POST {question, type, options}</code>，返回
+          <code>{"answer":["A","C"]}</code> 或 <code>{"answer":"对"}</code>。
+          不填接口就走本地题库和兜底。
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>本地题库 <span id="bankInfo" class="tag">0 条</span></h2>
+        <label class="row"><span>自动回收正确答案</span><input type="checkbox" data-key="harvest" /></label>
+        <textarea class="bank" data-key="localBank" placeholder="每行一条，格式：题目|答案&#10;例如：&#10;马克思主义的三个组成部分是|马克思主义哲学、政治经济学、科学社会主义&#10;1+1等于几|2"></textarea>
+        <p class="hint">答案可写选项字母（A / ABC）或选项原文；填空写文本，多空用 <code>||</code> 分隔。</p>
+        <div class="bank-btns">
+          <button id="exportBank" class="mini">导出</button>
+          <button id="importBank" class="mini">导入</button>
+          <button id="clearBank" class="mini danger">清空题库</button>
+          <input id="bankFile" type="file" accept=".json,application/json" hidden />
+        </div>
+        <p class="hint" id="statsLine">正确率：暂无数据（提交后自动统计）</p>
+      </section>
+
+      <section class="card">
+        <h2>章节讨论 · AI 一句话 <span id="aiState" class="tag">未测</span></h2>
+        <label class="row"><span>自动回复章节讨论</span><input type="checkbox" data-key="discussAuto" /></label>
+        <label class="row"><span>每轮最多回复</span><input class="num" type="number" min="1" max="20" data-key="discussMax" /></label>
+        <label class="row"><span>一句话字数上限</span><input class="num" type="number" min="15" max="200" data-key="discussLen" /></label>
+        <label class="row"><span>发送前先问我</span><input type="checkbox" data-key="confirmSend" /></label>
+        <label class="row"><span>回复完关掉这个话题页</span><input type="checkbox" data-key="closeAfterReply" /></label>
+        <p class="sub" style="margin:-2px 0 6px">回完这个 bbs 话题页等 1.5 秒自动把这个标签关掉，省得窗口里堆一堆「话题详情」。</p>
+        <p class="sub" style="margin:-2px 0 6px">开着的时候：AI 写好先弹小卡片，你可以改字、点「换一句」再生成、或者直接不发。</p>
+        <label class="row">
+          <span>AI 走哪条路</span>
+          <select data-key="aiMode">
+            <option value="bridge">本地 AI 桥（推荐）</option>
+            <option value="direct">直连 OpenAI 兼容接口</option>
+          </select>
+        </label>
+        <input class="txt" type="text" data-key="aiUrl" placeholder="AI 桥地址 http://127.0.0.1:17310/summarize" />
+        <input class="txt" type="text" data-key="aiBase" placeholder="直连 Base URL，例 https://api.deepseek.com/v1" />
+        <input class="txt" type="password" data-key="aiKey" placeholder="直连 API Key（桥模式不用填）" />
+        <input class="txt" type="text" data-key="aiModel" placeholder="模型名，例 deepseek-chat" />
+        <textarea class="bank small" data-key="aiPrompt" placeholder="自定义提示词（留空＝内置：客观概括同学们的看法，不用第一人称，不口语"></textarea>
+        <div class="bank-btns">
+          <button id="aiTest" class="mini">测试 AI</button>
+          <button id="discussNow" class="mini">立刻回一条</button>
+          <button id="discussReset" class="mini danger">清已回复记录</button>
+          <button id="purgeOld" class="mini">清掉这页旧回复</button>
+          <button id="diag" class="mini">诊断当前页</button>
+        </div>
+        <p class="hint" id="aiInfo">先双击扩展文件夹里的 bridge\启动AI桥.bat，再点“测试 AI”。</p>
+      </section>
+
+      <div class="actions">
+        <button id="save" class="primary">保存设置</button>
+        <button id="reload">重载当前页</button>
+        <button id="clear">清空日志</button>
+      </div>
+
+      <section class="logs">
+        <h2>运行日志 <span id="cnt"></span></h2>
+        <pre id="log">等待页面数据…</pre>
+      </section>
+
+      <footer class="ft">纯本地运行 · 数据只存在浏览器里 · 测试版有问题直接骂我</footer>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
