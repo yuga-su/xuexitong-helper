@@ -56,6 +56,7 @@ jobs:
           FJ_MODE=study node tests/bbs-test.js
           node tests/popup-test.js
           node tests/bg-test.js
+          node tests/model-auto-test.js
 
   tag:
     name: 打 tag

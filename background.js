@@ -54,6 +54,54 @@ function aiClean(text, maxLen) {
   return s;
 }
 
+function rankModels(list, want) {
+  const all = (list || []).filter((x) => typeof x === 'string' && x);
+  const junk = /embed|rerank|tts|asr|whisper|moderation|ocr|realtime|audio/i;
+  const pool = all.filter((id) => !junk.test(id));
+  const use = pool.length ? pool : all;
+  function score(id) {
+    let s = 0;
+    if (want && id === want) s += 20;
+    if (/deepseek/i.test(id)) s += 6;
+    if (/flash/i.test(id)) s += 5;
+    if (/chat/i.test(id)) s += 4;
+    if (/v4|v3\.2|v3/i.test(id)) s += 3;
+    if (/instruct/i.test(id)) s += 2;
+    if (/qwen|glm|kimi|gpt|doubao/i.test(id)) s += 1;
+    if (/^vanchin\//i.test(id)) s -= 9;
+    else if (id.indexOf('/') >= 0) s -= 2;
+    return s;
+  }
+  return use.slice().sort((a, b) => score(b) - score(a));
+}
+
+async function aiListModels(base, key) {
+  const b = String(base || '').replace(/\/+$/, '');
+  if (!b) return [];
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(b + '/models', {
+      headers: key ? { authorization: 'Bearer ' + key } : {},
+      signal: ctl.signal
+    });
+    if (!r.ok) return [];
+    const d = await r.json().catch(() => null);
+    const arr = (d && (d.data || d.models)) || [];
+    return arr.map((m) => (typeof m === 'string' ? m : m && m.id)).filter(Boolean);
+  } catch (e) {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function worthRetryModel(status, raw) {
+  if (status === 404 && /model/i.test(raw)) return true;
+  if (status === 400 && /not activated|not support|invalid model|does not exist/i.test(raw)) return true;
+  return false;
+}
+
 async function aiSummarize(msg) {
   const cfg = msg.cfg || {};
   const topic = String(msg.topic || '').slice(0, 1200);
@@ -64,14 +112,16 @@ async function aiSummarize(msg) {
   try {
     let url;
     let body;
+    let base = '';
     const headers = { 'content-type': 'application/json' };
     if (cfg.mode === 'direct') {
-      const base = String(cfg.base || '').replace(/\/+$/, '');
+      base = String(cfg.base || '').replace(/\/+$/, '');
       if (!base) throw new Error('直连模式要先填 Base URL');
       url = /\/chat\/completions$/.test(base) ? base : base + '/chat/completions';
       if (cfg.key) headers.authorization = 'Bearer ' + cfg.key;
+      if (!cfg.model) throw new Error('直连模式要填 Model（留空也行：会自己问 /models）');
       body = {
-        model: cfg.model || 'deepseek-chat',
+        model: cfg.model,
         temperature: 0.7,
         max_tokens: 400,
         messages: [
@@ -84,21 +134,59 @@ async function aiSummarize(msg) {
       body = { topic, replies, maxLen, avoid: msg.avoid || '', prompt: msg.prompt || '' };
     }
 
-    const r = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: ctl.signal
-    }).catch((e) => {
-      if (e && e.name === 'AbortError') throw new Error('AI 请求 40 秒没响应');
-      throw new Error(
-        (cfg.mode === 'direct' ? '连不上 AI 服务 ' : '连不上 AI 桥 ') +
-          url +
-          '（桥没开？双击 bridge\\启动AI桥.bat 那个黑窗口要一直开着）'
-      );
-    });
-    const raw = await r.text();
-    if (!r.ok) throw new Error('AI 接口 ' + r.status + '：' + raw.slice(0, 220));
+    const doFetch = () =>
+      fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: ctl.signal
+      }).catch((e) => {
+        if (e && e.name === 'AbortError') throw new Error('AI 请求 40 秒没响应');
+        if (cfg.mode === 'direct') {
+          throw new Error('连不上 AI 服务 ' + url + '（检查 Base URL，或者这台机器访问不了外网）');
+        }
+        throw new Error(
+          '连不上 AI 桥 ' +
+            url +
+            '（桥没开？双击 bridge\\启动AI桥.bat，那个黑窗口要一直开着；没装 Node.js 就装一个）'
+        );
+      });
+
+    let r = await doFetch();
+    let raw = await r.text();
+    let switched = '';
+
+    if (cfg.mode === 'direct' && !r.ok && worthRetryModel(r.status, raw)) {
+      const list = await aiListModels(base, cfg.key);
+      const tried = [body.model];
+      const cands = rankModels(list, body.model)
+        .filter((m) => tried.indexOf(m) < 0)
+        .slice(0, 4);
+      for (const m of cands) {
+        body.model = m;
+        tried.push(m);
+        r = await doFetch();
+        raw = await r.text();
+        if (r.ok) {
+          switched = m;
+          break;
+        }
+        if (!worthRetryModel(r.status, raw)) break;
+      }
+      if (!r.ok && !cands.length) {
+        const head = list.length
+          ? '这个地址可用的有：' + list.slice(0, 8).join('、')
+          : '这个地址查不到 /models，baseURL 和 model 要来自同一个服务商';
+        throw new Error('模型 ' + tried[0] + ' 不可用，也没有别的能试。' + head);
+      }
+    }
+
+    if (!r.ok) {
+      let tip = '';
+      if (r.status === 401 || r.status === 403) tip = '（Key 不对，或这个 Key 不属于这个地址）';
+      else if (/not activated/i.test(raw)) tip = '（这个模型没开通，已经试过几个都不行）';
+      throw new Error('AI 接口 ' + r.status + '：' + raw.slice(0, 220) + tip);
+    }
     let data;
     try {
       data = JSON.parse(raw);
@@ -112,7 +200,10 @@ async function aiSummarize(msg) {
       text = data && (data.text || data.answer || '');
     }
     if (!text) throw new Error('AI 没返回内容：' + raw.slice(0, 160));
-    return { ok: true, text: aiClean(text, maxLen) };
+    const out = { ok: true, text: aiClean(text, maxLen) };
+    if (cfg.mode === 'direct') out.model = body.model;
+    if (switched) out.modelSwitched = switched;
+    return out;
   } finally {
     clearTimeout(timer);
   }

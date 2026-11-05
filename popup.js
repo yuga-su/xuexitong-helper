@@ -267,7 +267,8 @@ async function testAi() {
       prompt: String(fieldValue('aiPrompt') || '')
     });
     if (res && res.ok) {
-      setAiInfo('AI 通了：' + res.text, '可用', 'on');
+      const who = res.modelSwitched ? '已自动换模型 ' + res.model + ' · ' : res.model ? res.model + ' · ' : '';
+      setAiInfo('AI 通了（' + who + '）' + res.text, '可用', 'on');
     } else {
       setAiInfo('AI 失败：' + ((res && res.error) || '无响应'), '不通', 'danger');
     }
