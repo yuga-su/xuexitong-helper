@@ -447,7 +447,7 @@ const realSetTimeout = setTimeout;
       ok(String(oldEditTa.value).length > 5, '新说法写进了旧楼层：' + String(oldEditTa.value).slice(0, 24));
       ok(logLines.some((l) => l.includes('原位替换')), '走了原位替换');
     } else if (process.env.FJ_OLD === '0') {
-      ok(oldReplyDel._clicked === undefined, '没有旧回复时不点删除');
+      ok(!oldReplyDel || oldReplyDel._clicked === undefined, '没有旧回复时不点删除');
     } else {
       ok(oldReplyDel._clicked === 1, '旧回复的删除按钮点了 ' + (oldReplyDel._clicked || 0) + ' 次');
       ok(!document.querySelector('.reply-item.del') && !!oldReply._removed, '旧回复已从页面消失');

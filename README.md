@@ -1,5 +1,9 @@
 # 学习通助手（xuexitong-helper）
 
+![CI](https://github.com/yuga-su/xuexitong-helper/actions/workflows/ci.yml/badge.svg)
+![version](https://img.shields.io/badge/version-1.0.0-7c3aed)
+![license](https://img.shields.io/badge/license-MIT-blue)
+
 > 一个跑在 Edge / Chrome 上的学习通（超星）辅助扩展：自动刷课、章节测验自动作答、本地题库自增长，再配一个本机 AI 小桥，帮你把章节讨论和 BBS 话题用一句话回完。
 
 - 纯前端扩展 + 本机 Node 小桥，**不经过任何第三方服务器**，课程 Cookie 和 API Key 都留在自己电脑上
@@ -113,6 +117,17 @@ node tests/bg-test.js             # background 的桥模式 / 直连 / 失败文
 ```
 
 改完代码记得 `node --check` 一遍。
+
+### 持续集成
+
+`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 PR 上跑：
+
+1. 对 5 个 JS 文件和测试脚本做 `node --check`
+2. 校验 `manifest.json`（MV3、版本号格式、关键文件是否齐全）
+3. 跑全部测试：`bbs-test.js` 的默认 / `FJ_EDIT` / `FJ_OLD` / `FJ_CLOSE` / `FJ_MODE=study` 五种模式，加 `popup-test.js`、`bg-test.js`
+4. Node 20 和 Node 22 各跑一遍
+
+测试全过之后，`tag` 任务会读 `manifest.json` 里的 `version`，如果远端还没有 `v<version>` 这个 tag，就自动打一个附注 tag 并推上去。所以**发版只需要改 `manifest.json` 的版本号再 push**，tag 由流水线兜底。
 
 ---
 

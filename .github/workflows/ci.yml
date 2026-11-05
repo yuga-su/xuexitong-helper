@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: 测试（Node ${{ matrix.node }}）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 语法检查
+        run: |
+          set -euo pipefail
+          for f in background.js content.js inject.js popup.js bridge/fj-bridge.js tests/*.js; do
+            node --check "$f"
+            echo "ok $f"
+          done
+
+      - name: 校验 manifest
+        run: |
+          node -e "
+            const m = require('./manifest.json');
+            if (m.manifest_version !== 3) throw new Error('必须是 MV3');
+            if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(m.version)) throw new Error('版本号格式不对: ' + m.version);
+            const fs = require('fs');
+            for (const f of ['background.js', 'content.js', 'popup.html', 'icons/icon128.png']) {
+              if (!fs.existsSync(f)) throw new Error('缺文件: ' + f);
+            }
+            console.log(m.name + ' / ' + m.version);
+          "
+
+      - name: 跑测试
+        run: |
+          set -euo pipefail
+          node tests/bbs-test.js
+          node tests/bbs-test.js
+          FJ_EDIT=1 node tests/bbs-test.js
+          FJ_OLD=0 node tests/bbs-test.js
+          FJ_CLOSE=0 node tests/bbs-test.js
+          FJ_MODE=study node tests/bbs-test.js
+          node tests/popup-test.js
+          node tests/bg-test.js
+
+  tag:
+    name: 打 tag
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 读版本号
+        id: ver
+        run: echo "version=$(node -p 'require("./manifest.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: 看这个版本有没有 tag
+        id: check
+        run: |
+          if git ls-remote --tags origin "refs/tags/v${{ steps.ver.outputs.version }}" | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "v${{ steps.ver.outputs.version }} 已存在，跳过"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 创建并推送 tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.ver.outputs.version }}" -m "学习通助手 v${{ steps.ver.outputs.version }}"
+          git push origin "v${{ steps.ver.outputs.version }}"
