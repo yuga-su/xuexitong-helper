@@ -22,6 +22,7 @@ const DEFAULTS = {
   discussAuto: false,
   discussMax: 3,
   confirmSend: true,
+  discussFallbackTab: false,
   closeAfterReply: true,
   discussLen: 60,
   aiMode: 'bridge',
@@ -329,6 +330,16 @@ async function discussReset() {
   } catch (e) {}
 }
 
+function discussEnter() {
+  if (!currentTab) return flash('没找到标签页');
+  chrome.tabs.sendMessage(currentTab.id, { type: 'fj-discuss-enter' }, (resp) => {
+    if (chrome.runtime.lastError || !resp) return flash('主页面没反应，先刷新一下');
+    if (resp.ok) flash('进了：' + (resp.how || '教师讨论'));
+    else flash('没找到教师讨论入口，看日志');
+  });
+  setTimeout(pullLogs, 1200);
+}
+
 function slideOnce() {
   if (!currentTab) return flash('没找到标签页');
   const info = document.getElementById('slideInfo');
@@ -417,6 +428,7 @@ async function init() {
   bind('#discussReset', discussReset);
   bind('#purgeOld', purgeOld);
   bind('#slideOnce', slideOnce);
+  bind('#discussEnter', discussEnter);
   bind('#diag', () => {
     if (!currentTab) return flash('没找到标签页');
     chrome.tabs.sendMessage(currentTab.id, { type: 'fj-diag' }, (resp) => {

@@ -36,6 +36,8 @@
     harvest: true,
     /* ---- 章节讨论 AI 一句话 ---- */
     discussAuto: false,
+    discussEntry: '',
+    discussFallbackTab: false,
     discussMax: 3,
     discussLen: 60,
     confirmSend: true,
@@ -1220,9 +1222,109 @@
     return document.getElementById('content2');
   }
 
+  // —— 讨论入口 ——
+  // 站里有两个「讨论」：右边目录旁边的「学习讨论区」，和教师按章节发布的任务点讨论。
+  // 我们要的是后者，所以优先在章节内容 / 课程导航里找「讨论」任务点，
+  // 找不到就直说，不再手贱去点学习讨论区（除非用户自己打开 discussFallbackTab）。
+
+  const ENTRY_BAD_TXT = /^(学习讨论区|讨论区|讨论|更多讨论|我的讨论|全部讨论)$/;
+
+  function entryText(el) {
+    return String((el && (el.innerText || el.textContent || el.title || el.getAttribute('title') || '')) || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function entryClickable(el) {
+    if (!el || !visible(el)) return false;
+    if (el.closest('#fj-cx-panel') || el.closest('#fj-draft')) return false;
+    const t = entryText(el);
+    if (!t || t.length > 40) return false;
+    return true;
+  }
+
+  // 候选：章节里的任务点、课程导航里的「讨论」、带 discuss/topic 的链接
+  function teacherDiscussEntries() {
+    const out = [];
+    const seen = new Set();
+    const push = (el, why) => {
+      if (!entryClickable(el) || seen.has(el)) return;
+      seen.add(el);
+      out.push({ el, why: why, text: entryText(el).slice(0, 30) });
+    };
+
+    // 1) 任务点 / 章节条目里名字带「讨论」
+    $$('.chapter_item, .chapterText, .chapterItem, .taskPoint, .point, li, .catalog_item').forEach((el) => {
+      if (/讨论/.test(entryText(el)) && entryText(el).length <= 30) push(el, '章节任务点');
+    });
+
+    // 2) 直接带 discuss / topic 的链接或 onclick
+    $$('a[href*="discuss"], a[href*="topic"], a[href*="bbs"], [onclick*="discuss"], [onclick*="Discuss"]').forEach((el) => {
+      push(el, '链接');
+    });
+
+    // 3) 文本里同时出现「教师 / 老师」和「讨论」的块
+    $$('span, div, p, a, b, strong').forEach((el) => {
+      const t = entryText(el);
+      if (t.length <= 24 && /讨论/.test(t) && /教师|老师/.test(t)) push(el, '带「教师」字样');
+    });
+
+    return out;
+  }
+
+  function teacherDiscussEntry() {
+    if (S.discussEntry) {
+      const el = $(S.discussEntry);
+      if (el) return { el, why: '自定义选择器', text: entryText(el).slice(0, 30) };
+    }
+    const list = teacherDiscussEntries();
+    // 「章节任务点」比裸链接可靠，优先
+    const rank = { 章节任务点: 3, '带「教师」字样': 2, 链接: 1, 自定义选择器: 4 };
+    list.sort((a, b) => (rank[b.why] || 0) - (rank[a.why] || 0));
+    return list[0] || null;
+  }
+
+  async function enterTeacherDiscuss() {
+    if ($$('#content2 .itemDiscuss, #content2 textarea[id^="discuss"]').length) {
+      return { ok: true, how: '已经在讨论里' };
+    }
+    const entry = teacherDiscussEntry();
+    if (!entry) {
+      log('没找到教师发布的讨论入口（章节任务点 / 讨论链接都没匹配上），先不去点学习讨论区', 'warn');
+      return { ok: false, why: 'no-entry' };
+    }
+    log('从「' + entry.text + '」（' + entry.why + '）进入教师发布的讨论');
+    clickEl(entry.el);
+    await sleep(1800);
+    if ($$('#content2 textarea[id^="discuss"]').length || $$('#content2 .itemDiscuss').length) {
+      return { ok: true, how: entry.why, text: entry.text };
+    }
+    // 有些入口是跳新页面的，等它加载
+    if (location.href.indexOf('discuss') >= 0 || location.href.indexOf('topic') >= 0 || location.href.indexOf('/bbs') >= 0) {
+      return { ok: true, how: entry.why + '（跳到讨论页）', text: entry.text };
+    }
+    const cues = $$('.itemDiscuss, [class*="topic"], [class*="discuss"], [class*="replay"]');
+    if (cues.length) {
+      log('点进去了，这页不像右栏讨论，交给通用讨论逻辑处理');
+      return { ok: true, how: entry.why + '（通用页面）', text: entry.text };
+    }
+    log('点了「' + entry.text + '」但没看到讨论内容，可能没加载出来', 'warn');
+    return { ok: false, why: 'clicked-but-empty' };
+  }
+
   async function ensureDiscussLoaded() {
-    if (!discussBox()) return false;
     if ($$('#content2 .itemDiscuss, #content2 textarea[id^="discuss"]').length) return true;
+
+    const r = await enterTeacherDiscuss();
+    if (r.ok && ($$('#content2 textarea[id^="discuss"]').length || $$('#content2 .itemDiscuss').length)) return true;
+
+    // 教师讨论不是右栏那一挂的：交给通用讨论页逻辑
+    if (r.ok) return false;
+
+    // 用户明确要求「找不到也别退回学习讨论区」
+    if (!S.discussFallbackTab) return false;
+
+    log('按设置退回学习讨论区', 'warn');
     const tab = document.getElementById('tit2');
     if (tab) {
       tab.click();
@@ -1232,7 +1334,6 @@
     callPage('changePan', ['2']);
     callPage('getChapterRightDiscuss', []);
     await sleep(2600);
-    // 有些版本回复框要点“回复”才出来
     if (!$$('#content2 textarea[id^="discuss"]').length) {
       const triggers = $$('#content2 .itemDiscuss [onclick*="replay("]').slice(0, 5);
       triggers.forEach((t) => {
@@ -1440,15 +1541,23 @@
     if (!IS_TOP || !S.discussAuto || st.discussBusy) return;
     if (isBbsPage()) return;
     if (!st.discussForce && Date.now() - st.lastDiscussAt < 8000) return;
-    if (!discussBox()) return;
     st.discussBusy = true;
     st.lastDiscussAt = Date.now();
     st.discussForce = false;
     try {
       if (!st.replied) await loadReplied();
-      if (!(await ensureDiscussLoaded())) {
-        log('讨论区没加载出来，跳过（可手动点右侧“讨论”再看）', 'warn');
-        return;
+      if (!discussBox() || !$$('#content2 textarea[id^="discuss"]').length) {
+        const entered = await ensureDiscussLoaded();
+        if (!discussBox()) {
+          // 教师发布的话题常常是独立页，不在右边那一栏里
+          if (bbsEditors().length) {
+            st.discussBusy = false;
+            await bbsTick();
+            return;
+          }
+          log(entered ? '进了讨论页但没找到回复框' : '没进到讨论：没找到教师发布的讨论入口', 'warn');
+          return;
+        }
       }
       const tasks = collectDiscussTasks();
       if (!tasks.length) {
@@ -2331,6 +2440,13 @@
         (slideRoot() ? '有' : '没有')
     );
     log('课件跳过原因：' + (slideWhy() || '无（这页该翻）'));
+    const ents = teacherDiscussEntries();
+    log(
+      '教师讨论入口候选 ' +
+        ents.length +
+        '：' +
+        (ents.slice(0, 6).map((e) => e.text + '[' + e.why + ']').join(' / ') || '一个都没找到')
+    );
   }
 
   /* ================= 初始化 ================= */
@@ -2389,6 +2505,22 @@
         diagPage();
         sendResponse({ ok: true, top: IS_TOP, url: location.href });
         return;
+      }
+      if (msg && msg.type === 'fj-discuss-enter') {
+        if (!IS_TOP) {
+          sendResponse({ ok: false, error: '这条要在主框架点' });
+          return;
+        }
+        ensureDiscussLoaded().then((loaded) => {
+          try {
+            sendResponse({
+              top: true,
+              ok: !!loaded,
+              how: loaded ? '讨论已加载' : '没进到讨论，看日志'
+            });
+          } catch (e) {}
+        });
+        return true;
       }
       if (msg && msg.type === 'fj-slide-once') {
         if (!IS_TOP) {

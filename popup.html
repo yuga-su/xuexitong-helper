@@ -10,7 +10,7 @@
       <header class="hd">
         <div class="logo">富</div>
         <div class="hd-txt">
-          <h1>学习通助手 <span class="ver">1.0.3</span></h1>
+          <h1>学习通助手 <span class="ver">1.0.4</span></h1>
           <p class="sub">刷课 · 弹题 · 答题 · 本地题库 · AI 章节讨论</p>
         </div>
         <span id="conn" class="pill off">检测中</span>
@@ -99,6 +99,8 @@
         <label class="row"><span>自动回复章节讨论</span><input type="checkbox" data-key="discussAuto" /></label>
         <label class="row"><span>每轮最多回复</span><input class="num" type="number" min="1" max="20" data-key="discussMax" /></label>
         <label class="row"><span>一句话字数上限</span><input class="num" type="number" min="15" max="200" data-key="discussLen" /></label>
+        <label class="row"><span>进教师发布的讨论</span><button id="discussEnter" class="mini">立刻进</button></label>
+        <label class="row"><span>找不到时退回学习讨论区</span><input type="checkbox" data-key="discussFallbackTab" /></label>
         <label class="row"><span>发送前先问我</span><input type="checkbox" data-key="confirmSend" /></label>
         <label class="row"><span>回复完关掉这个话题页</span><input type="checkbox" data-key="closeAfterReply" /></label>
         <p class="sub" style="margin:-2px 0 6px">回完这个 bbs 话题页等 1.5 秒自动把这个标签关掉，省得窗口里堆一堆「话题详情」。</p>
