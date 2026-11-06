@@ -10,7 +10,7 @@
       <header class="hd">
         <div class="logo">富</div>
         <div class="hd-txt">
-          <h1>学习通助手 <span class="ver">1.0.4</span></h1>
+          <h1>学习通助手 <span class="ver">1.0.5</span></h1>
           <p class="sub">刷课 · 弹题 · 答题 · 本地题库 · AI 章节讨论</p>
         </div>
         <span id="conn" class="pill off">检测中</span>
@@ -34,6 +34,8 @@
           </select>
         </label>
         <label class="row"><span>自动下一节</span><input type="checkbox" data-key="autoNext" /></label>
+        <label class="row"><span>任务点没做完不跳</span><input type="checkbox" data-key="strictNext" /></label>
+        <p class="hint">开着更稳：本节还有讨论/文档任务点没完成时，先不跳下一节，免得漏任务点。</p>
         <label class="row"><span>页面悬浮面板</span><input type="checkbox" data-key="showPanel" /></label>
       </section>
 
@@ -51,6 +53,8 @@
           <button id="slideOnce" class="mini">手动翻一页</button>
         </div>
         <p class="hint" id="slideInfo">不翻的时候点这里：六种翻法挨个试一遍，日志里会说哪种生效。</p>
+        <label class="row"><span>先试页面自带完成接口</span><input type="checkbox" data-key="slideFastFinish" /></label>
+        <p class="hint">文档/PPT 类任务点先喊页面自己的 greenligth / finishJob，能直接算完成，就不慢慢翻了。</p>
       </section>
 
       <section class="card">

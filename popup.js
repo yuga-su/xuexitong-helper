@@ -32,7 +32,10 @@ const DEFAULTS = {
   aiModel: '',
   aiPrompt: '',
   autoSlide: true,
-  slideEvery: 2
+  slideEvery: 2,
+  slideFastFinish: true,
+  strictNext: true,
+  fontWarn: true
 };
 
 const $ = (s) => document.querySelector(s);

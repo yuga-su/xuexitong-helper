@@ -50,7 +50,13 @@
     aiPrompt: '',
     /* ---- 翻页 / 滑动课件 ---- */
     autoSlide: true,
-    slideEvery: 2
+    slideEvery: 2,
+    // 文档类任务点先试试页面自带的完成接口（比一页页翻快）
+    slideFastFinish: true,
+    // 本节任务点没全完成就不跳下一节，免漏讨论/文档任务点
+    strictNext: true,
+    // 题干字体加密时提醒一次
+    fontWarn: true
   };
 
   const S = Object.assign({}, DEFAULTS);
@@ -87,7 +93,10 @@
     slideWarned: false,
     slideDone: false,
     slidePages: "",
-    slideSkipLog: ""
+    slideSkipLog: "",
+    fastTried: false,
+    pageFnOk: "",
+    fontWarned: false
   };
 
   const boundVideos = new WeakSet();
@@ -116,6 +125,8 @@
 
   function norm(s) {
     return String(s || '')
+      // 全角转半角：题库里「（Ａ）」和「(A)」要能对上
+      .replace(/[\uff01-\uff5e]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248))
       .replace(/[\s\u3000]+/g, '')
       .replace(/[，。、；：？！“”‘’（）()【】\[\]《》<>·,.;:?!'"`~]/g, '')
       .toLowerCase();
@@ -262,7 +273,20 @@
     const qs = $$('.questionLi, .TiMu').length;
     if (qs) parts.push('题目 ' + qs);
     if (st.workBusy) parts.push('答题中');
+    if (IS_TOP) {
+      const all = jobIcons(document).length;
+      if (all) parts.push('任务点 ' + (all - unfinishedJobs()) + '/' + all);
+    }
     return parts.join(' · ');
+  }
+
+  // 超星有些题干用自定义字体混淆（class="font-cxsecret"），逐字还原要官方字体表，人家不硬解。
+  // 但要提醒一句：这页的题干在页面上就是乱码，题库匹配会不准。
+  function fontCipherWarn() {
+    if (!S.fontWarn || st.fontWarned) return;
+    if (!document.querySelector('.font-cxsecret')) return;
+    st.fontWarned = true;
+    log('这页题干用了字体加密（显示出来是乱码），题库匹配会不准，答案以页面为准', 'warn');
   }
 
   function renderPanel() {
@@ -429,20 +453,80 @@
     return null;
   }
 
+  function frameDoc() {
+    try {
+      return (window.frameElement && window.frameElement.ownerDocument) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function jobIcons(doc) {
+    try {
+      return Array.prototype.slice.call((doc || document).querySelectorAll('.ans-job-icon'));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // 没完成的任务点：.ans-job-icon 的父节点带 ans-job-finished 才算完成
+  function unfinishedJobs() {
+    const doc = frameDoc() || document;
+    return jobIcons(doc).filter((ic) => {
+      const box = ic.parentElement;
+      return box && !/(^|\s)ans-job-finished(\s|$)/.test(String(box.className || ''));
+    }).length;
+  }
+
+  // 按左侧目录树往后挪一节：跳过锁住的/闯关的（学油猴脚本的 toNext）
+  function nextChapterByTree() {
+    const nodes = $$('.roundpoint, .roundpointStudent').filter(visible);
+    if (!nodes.length) return false;
+    const cidEl = document.getElementById('chapterIdid');
+    const cid = cidEl && cidEl.value;
+    const cur = cid ? document.getElementById('cur' + cid) : null;
+    let idx = -1;
+    if (cur) idx = nodes.findIndex((n) => n === cur || n.contains(cur) || cur.contains(n));
+    if (idx < 0) idx = nodes.findIndex((n) => /(^|\s)(currents|current|active)(\s|$)/.test(String(n.className || '')));
+    if (idx < 0) return false;
+    for (let k = idx + 1; k < nodes.length; k++) {
+      const n = nodes[k];
+      if (!visible(n)) continue;
+      if (n.querySelector('.lock')) continue;
+      const name = (n.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 16);
+      const span = n.querySelector('span') || n;
+      try {
+        span.click();
+        log('按目录跳到下一节：' + (name || '(没名字)'));
+        return true;
+      } catch (e) {}
+    }
+    return false;
+  }
+
   function nextChapter() {
     if (!IS_TOP || !S.autoNext) return;
     if (Date.now() - st.lastNextAt < 8000) return;
+    if (S.strictNext) {
+      const left = unfinishedJobs();
+      if (left > 0) {
+        log('本节还有 ' + left + ' 个任务点没完成，先不跳下一节', 'warn');
+        return;
+      }
+    }
     const btn = findNextButton();
-    if (!btn) {
+    if (!btn && !nextChapterByTree()) {
       log('未找到"下一节"按钮，等待手动操作', 'warn');
       return;
     }
     st.lastNextAt = Date.now();
-    log('点击下一节：' + (btn.innerText || '').trim().slice(0, 12));
-    try {
-      btn.click();
-    } catch (e) {
-      log('下一节点击失败：' + e.message, 'error');
+    if (btn) {
+      log('点击下一节：' + (btn.innerText || '').trim().slice(0, 12));
+      try {
+        btn.click();
+      } catch (e) {
+        log('下一节点击失败：' + e.message, 'error');
+      }
     }
     setTimeout(videoTick, 2500);
   }
@@ -894,6 +978,18 @@
   function normalizeApiAnswer(data, q) {
     if (!data) return null;
     let v = data;
+    // 兼容 {code:1, data:"A#B"} 这种题库接口（muketool 系常见格式）
+    if (typeof data === 'object' && typeof data.code !== 'undefined' && typeof data.data !== 'undefined') {
+      if (!data.code) return null;
+      const d = data.data;
+      v =
+        typeof d === 'string'
+          ? d
+              .split(/[#\x01]/)
+              .map((x) => x.trim())
+              .filter(Boolean)
+          : d;
+    }
     if (typeof data === 'object' && 'answer' in data) v = data.answer;
     else if (typeof data === 'object' && data.data && typeof data.data === 'object' && 'answer' in data.data) v = data.data.answer;
     else if (typeof data === 'object' && 'result' in data) v = data.result;
@@ -2312,10 +2408,34 @@
     return slideWhy() === '';
   }
 
+  function jobBoxFinished() {
+    try {
+      const fe = window.frameElement;
+      const box = fe && fe.parentElement;
+      return !!(box && /(^|\s)ans-job-finished(\s|$)/.test(String(box.className || '')));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function tryFastFinish() {
+    if (st.fastTried) return;
+    st.fastTried = true;
+    if (!S.slideFastFinish || jobBoxFinished()) return;
+    callPage('greenligth', []);
+    setTimeout(() => {
+      if (!st.pageFnOk) callPage('finishJob', []);
+    }, 800);
+    setTimeout(() => {
+      if (st.pageFnOk) log('用页面自带的完成接口（' + st.pageFnOk + '）上报了任务点，翻页可以慢慢来', 'ok');
+    }, 1600);
+  }
+
   function slideTick() {
     if (!S.autoSlide) return;
     if (st.slideDone) return;
     const whySkip = slideWhy();
+    if (!whySkip) tryFastFinish();
     if (whySkip) {
       if (st.slideSkipLog !== whySkip) {
         st.slideSkipLog = whySkip;
@@ -2486,6 +2606,17 @@
     setTimeout(videoTick, 600);
     log('已注入' + (IS_TOP ? '主框架' : '子框架') + '：' + location.hostname + location.pathname.slice(0, 40));
   }
+
+  try {
+    window.addEventListener('fj-page-result', (ev) => {
+      try {
+        const d = JSON.parse(ev.detail);
+        if (d && d.ok) st.pageFnOk = d.name;
+      } catch (e) {}
+    });
+  } catch (e) {}
+
+  setTimeout(fontCipherWarn, 3000);
 
   try {
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

@@ -58,7 +58,9 @@
     getChapterRightDiscuss: true,
     getGroupChapterRightDiscuss: true,
     changePan: true,
-    replay: true
+    replay: true,
+    greenligth: true,
+    finishJob: true
   };
 
   const onCall = (ev) => {
@@ -69,18 +71,69 @@
       return;
     }
     const name = payload && payload.name;
+    const reply = (ok) => {
+      try {
+        document.dispatchEvent(
+          new CustomEvent('fj-page-result', {
+            detail: JSON.stringify({ name, ok }),
+            bubbles: true,
+            composed: true
+          })
+        );
+      } catch (e) {}
+    };
     if (!ALLOWED[name] || typeof window[name] !== 'function') {
       try { console.log('[学习通助手] 页面函数不可用：', name); } catch (e) {}
+      reply(false);
       return;
     }
     try {
       window[name].apply(window, payload.args || []);
+      reply(true);
     } catch (e) {
       try { console.log('[学习通助手] 调用页面函数失败', name, e); } catch (e2) {}
+      reply(false);
     }
   };
 
   // document 上派发的事件只有 bubbles 才会冒到 window，两处都收一遍最稳
   window.addEventListener('fj-page-call', onCall);
   document.addEventListener('fj-page-call', onCall);
+
+  /* ---------- 学习通自己的小动作，顺手掐掉 ---------- */
+
+  // 1) 手机端学习检测：超星会弹「请用手机学习」，拦掉这个函数就安静了
+  try {
+    window.checkMobileBrowerLearn = function () {};
+  } catch (e) {}
+
+  // 2) 切窗口暂停：有些页面监听 mouseout 判「人走了」，捕获阶段直接掐断
+  try {
+    document.addEventListener(
+      'mouseout',
+      (ev) => {
+        try { ev.stopPropagation(); } catch (e) {}
+      },
+      true
+    );
+  } catch (e) {}
+
+  // 3) 视频弹题：页面拉 richvideo/initdatawithviewerV2 拿题目，直接给它一个空数组
+  try {
+    const rawOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      const hit = typeof url === 'string' && url.indexOf('richvideo/initdatawithviewerV2') >= 0;
+      if (hit) {
+        this.addEventListener('readystatechange', function () {
+          if (this.readyState === 4) {
+            try {
+              Object.defineProperty(this, 'responseText', { writable: true, configurable: true });
+              this.responseText = JSON.stringify([]);
+            } catch (e) {}
+          }
+        });
+      }
+      return rawOpen.apply(this, arguments);
+    };
+  } catch (e) {}
 })();
